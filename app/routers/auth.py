@@ -1,6 +1,10 @@
+import asyncio
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +15,7 @@ from ..email_utils import send_password_reset_email
 from ..models import PasswordResetToken, User
 from ..schemas import (
     ForgotPasswordRequest,
+    GoogleAuthRequest,
     LoginRequest,
     MessageResponse,
     ResetPasswordRequest,
@@ -25,6 +30,13 @@ from ..security import (
     hash_reset_token,
     verify_password,
 )
+
+
+def _verify_google_id_token(token: str, audience: str) -> dict:
+    """Blocking Google ID-token verification (runs in a worker thread)."""
+    return google_id_token.verify_oauth2_token(
+        token, google_requests.Request(), audience
+    )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -75,6 +87,50 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled."
         )
+    return _token_for(user)
+
+
+@router.post("/google", response_model=TokenResponse)
+async def google_auth(
+    payload: GoogleAuthRequest, db: AsyncSession = Depends(get_db)
+):
+    if not settings.google_client_id:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google sign-in is not configured on the server.",
+        )
+
+    try:
+        idinfo = await asyncio.to_thread(
+            _verify_google_id_token, payload.id_token, settings.google_client_id
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired Google token.",
+        )
+
+    email = idinfo.get("email")
+    if not email or not idinfo.get("email_verified", False):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Your Google account has no verified email.",
+        )
+
+    email = email.lower()
+    user = await _get_user_by_email(db, email)
+    if user is None:
+        # First Google sign-in → create the account. No usable password is set
+        # (a random hash keeps the column populated); they sign in via Google.
+        user = User(
+            full_name=idinfo.get("name") or email.split("@")[0],
+            email=email,
+            hashed_password=hash_password(secrets.token_urlsafe(32)),
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
     return _token_for(user)
 
 

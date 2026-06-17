@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     reset_link_base_url: str = "https://glamira.app/reset-password"
     reset_token_expire_minutes: int = 60
 
+    # Google OAuth Web client id — the audience the mobile app's ID token is
+    # issued for (passed as serverClientId in the app). Required for /auth/google.
+    google_client_id: str | None = None
+
     cors_origins: str = "*"
 
     # Optional SMTP. When unset, reset links are logged to the console.
