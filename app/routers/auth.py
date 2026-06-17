@@ -25,11 +25,13 @@ from ..schemas import (
 )
 from ..security import (
     create_access_token,
-    generate_reset_token,
+    generate_reset_code,
     hash_password,
-    hash_reset_token,
+    hash_reset_code,
     verify_password,
 )
+
+MAX_RESET_ATTEMPTS = 5
 
 
 def _verify_google_id_token(token: str, audience: str) -> dict:
@@ -145,21 +147,19 @@ async def forgot_password(
     # Always respond the same way so the endpoint can't be used to discover
     # which emails are registered.
     if user is not None:
-        raw_token, token_hash = generate_reset_token()
+        code = generate_reset_code()
         reset = PasswordResetToken(
             user_id=user.id,
-            token_hash=token_hash,
+            code_hash=hash_reset_code(code),
             expires_at=datetime.now(timezone.utc)
             + timedelta(minutes=settings.reset_token_expire_minutes),
         )
         db.add(reset)
         await db.commit()
-        background_tasks.add_task(
-            send_password_reset_email, user.email, raw_token
-        )
+        background_tasks.add_task(send_password_reset_email, user.email, code)
 
     return MessageResponse(
-        message="If an account exists for that email, a reset link has been sent."
+        message="If an account exists for that email, a reset code has been sent."
     )
 
 
@@ -167,31 +167,51 @@ async def forgot_password(
 async def reset_password(
     payload: ResetPasswordRequest, db: AsyncSession = Depends(get_db)
 ):
-    token_hash = hash_reset_token(payload.token)
-    result = await db.execute(
-        select(PasswordResetToken).where(
-            PasswordResetToken.token_hash == token_hash
-        )
-    )
-    reset = result.scalar_one_or_none()
-
-    now = datetime.now(timezone.utc)
-    if reset is None or reset.used or reset.expires_at < now:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This reset link is invalid or has expired.",
-        )
-
-    user = await db.get(User, reset.user_id)
+    user = await _get_user_by_email(db, payload.email)
     if user is None:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid reset link."
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset code.",
+        )
+
+    # Most recent unused code for this user.
+    result = await db.execute(
+        select(PasswordResetToken)
+        .where(
+            PasswordResetToken.user_id == user.id,
+            PasswordResetToken.used == False,  # noqa: E712
+        )
+        .order_by(PasswordResetToken.created_at.desc())
+    )
+    reset = result.scalars().first()
+
+    now = datetime.now(timezone.utc)
+    if reset is None or reset.expires_at < now:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset code. Please request a new one.",
+        )
+
+    if reset.attempts >= MAX_RESET_ATTEMPTS:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many attempts. Please request a new reset code.",
+        )
+
+    if reset.code_hash != hash_reset_code(payload.code):
+        reset.attempts += 1
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Incorrect code. Please try again.",
         )
 
     user.hashed_password = hash_password(payload.new_password)
     reset.used = True
     await db.commit()
-    return MessageResponse(message="Your password has been reset. You can now log in.")
+    return MessageResponse(
+        message="Your password has been reset. You can now log in."
+    )
 
 
 @router.get("/me", response_model=UserResponse)

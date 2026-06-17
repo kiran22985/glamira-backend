@@ -44,11 +44,10 @@ def decode_access_token(token: str) -> str | None:
     return payload.get("sub")
 
 
-def generate_reset_token() -> tuple[str, str]:
-    """Return (raw_token, token_hash). Only the hash is stored."""
-    raw = secrets.token_urlsafe(32)
-    return raw, hash_reset_token(raw)
+def generate_reset_code() -> str:
+    """A 6-digit numeric one-time code (e.g. '048217')."""
+    return f"{secrets.randbelow(1_000_000):06d}"
 
 
-def hash_reset_token(raw: str) -> str:
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+def hash_reset_code(code: str) -> str:
+    return hashlib.sha256(code.encode("utf-8")).hexdigest()
