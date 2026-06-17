@@ -36,6 +36,7 @@ class UserResponse(BaseModel):
     full_name: str
     email: EmailStr
     phone_number: str | None
+    auth_provider: str
     created_at: datetime
 
 

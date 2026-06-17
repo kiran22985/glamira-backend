@@ -126,6 +126,7 @@ async def google_auth(
             full_name=idinfo.get("name") or email.split("@")[0],
             email=email,
             hashed_password=hash_password(secrets.token_urlsafe(32)),
+            auth_provider="google",
         )
         db.add(user)
         await db.commit()
