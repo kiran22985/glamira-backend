@@ -1,8 +1,18 @@
 import asyncio
+import os
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    UploadFile,
+    status,
+)
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from sqlalchemy import select
@@ -32,6 +42,14 @@ from ..security import (
 )
 
 MAX_RESET_ATTEMPTS = 5
+
+AVATAR_DIR = "media/avatars"
+AVATAR_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+AVATAR_EXTENSIONS = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+}
 
 
 def _verify_google_id_token(token: str, audience: str) -> dict:
@@ -216,4 +234,52 @@ async def reset_password(
 
 @router.get("/me", response_model=UserResponse)
 async def me(current_user: User = Depends(get_current_user)):
+    return UserResponse.model_validate(current_user)
+
+
+@router.post("/me/avatar", response_model=UserResponse)
+async def upload_avatar(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    ext = AVATAR_EXTENSIONS.get(file.content_type or "")
+    if ext is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported image type. Use JPEG, PNG or WebP.",
+        )
+
+    contents = await file.read()
+    if len(contents) > AVATAR_MAX_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Image is too large (max 5 MB).",
+        )
+
+    os.makedirs(AVATAR_DIR, exist_ok=True)
+    filename = f"{current_user.id}_{uuid.uuid4().hex}{ext}"
+    with open(os.path.join(AVATAR_DIR, filename), "wb") as f:
+        f.write(contents)
+
+    current_user.avatar_url = f"/media/avatars/{filename}"
+    await db.commit()
+    await db.refresh(current_user)
+    return UserResponse.model_validate(current_user)
+
+
+@router.delete("/me/avatar", response_model=UserResponse)
+async def remove_avatar(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.avatar_url:
+        # Best-effort delete of the stored file (path is "/media/avatars/x").
+        try:
+            os.remove(current_user.avatar_url.lstrip("/"))
+        except OSError:
+            pass
+        current_user.avatar_url = None
+        await db.commit()
+        await db.refresh(current_user)
     return UserResponse.model_validate(current_user)

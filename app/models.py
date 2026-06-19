@@ -26,6 +26,7 @@ class User(Base):
     auth_provider: Mapped[str] = mapped_column(
         String(20), default="email", server_default="email"
     )
+    avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow

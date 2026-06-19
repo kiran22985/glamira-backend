@@ -38,6 +38,7 @@ class UserResponse(BaseModel):
     email: EmailStr
     phone_number: str | None
     auth_provider: str
+    avatar_url: str | None
     created_at: datetime
 
 
