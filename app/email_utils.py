@@ -1,6 +1,7 @@
 import logging
 import smtplib
 from email.message import EmailMessage
+from email.utils import formataddr
 
 from .config import settings
 
@@ -22,7 +23,7 @@ def send_password_reset_email(to_email: str, code: str) -> None:
 
     msg = EmailMessage()
     msg["Subject"] = "Your Glamira password reset code"
-    msg["From"] = settings.smtp_from
+    msg["From"] = formataddr((settings.smtp_from_name, settings.smtp_from))
     msg["To"] = to_email
     msg.set_content(
         "We received a request to reset your Glamira password.\n\n"

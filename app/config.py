@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     smtp_user: str | None = None
     smtp_password: str | None = None
     smtp_from: str = "no-reply@glamira.app"
+    smtp_from_name: str = "Glamira"
 
     @property
     def cors_origins_list(self) -> list[str]:
