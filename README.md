@@ -51,17 +51,25 @@ The schema is managed by Alembic — the app no longer creates tables at startup
 Alembic reads `DATABASE_URL` from your `.env` (via `app.config`), so it always
 targets the same database as the app.
 
-## Deploy (Render, free tier)
+## Deploy (Railway)
 
-`render.yaml` is a Render Blueprint that provisions the API + a free PostgreSQL
-database. Push to GitHub, then in Render: **New +** → **Blueprint** → pick this
-repo. Migrations run automatically on each deploy (`alembic upgrade head` is
-prepended to the start command).
+`railway.json` configures the build (Nixpacks) and start command. Migrations run
+automatically on each deploy — `alembic upgrade head` is prepended to the start
+command.
 
-Free-tier caveats: the web service sleeps after ~15 min idle (slow first
-request), the filesystem is ephemeral so uploaded avatars in `media/` are wiped
-on redeploy (use object storage for real persistence), and the free database is
-removed ~90 days after creation.
+1. **New Project → Deploy from GitHub repo** → pick `glamira-backend`.
+2. **New → Database → Add PostgreSQL** in the same project.
+3. In the **API service → Variables**, add:
+   - `DATABASE_URL` = `${{Postgres.DATABASE_URL}}` (reference the Postgres
+     service's private URL — `config.py` rewrites it to the `+asyncpg` driver)
+   - `SECRET_KEY` = a strong random value
+     (`python -c "import secrets; print(secrets.token_urlsafe(32))"`)
+   - Optional: `GOOGLE_CLIENT_ID`, `CORS_ORIGINS`, `SMTP_*`
+4. **API service → Settings → Networking → Generate Domain** to get a public URL.
+
+Railway injects `PORT`; the app binds to it via the start command. The filesystem
+is ephemeral, so uploaded avatars in `media/` are wiped on redeploy — use object
+storage for real persistence.
 
 ## Endpoints
 
