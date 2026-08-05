@@ -1,4 +1,5 @@
 from functools import lru_cache
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -34,16 +35,28 @@ class Settings(BaseSettings):
 
     @field_validator("database_url")
     @classmethod
-    def _use_asyncpg_driver(cls, v: str) -> str:
-        """Normalize the DB URL to the async driver.
+    def _normalize_db_url(cls, v: str) -> str:
+        """Normalize the DB URL for the asyncpg driver.
 
-        Hosts like Render provide a psycopg-style URL (``postgres://`` or
-        ``postgresql://``), but our engine uses asyncpg and needs its own
-        ``+asyncpg`` prefix. Rewrite it so the same code runs locally and in prod.
+        Hosts hand out a psycopg-style URL (``postgres://`` / ``postgresql://``)
+        often with libpq-only query params (``sslmode``, ``channel_binding``).
+        Our engine uses asyncpg, which needs the ``+asyncpg`` scheme and rejects
+        those params. Rewrite the scheme and drop the params — asyncpg still
+        negotiates SSL by default, so external DBs (e.g. Neon) connect fine.
         """
         for prefix in ("postgresql://", "postgres://"):
             if v.startswith(prefix):
-                return "postgresql+asyncpg://" + v[len(prefix):]
+                v = "postgresql+asyncpg://" + v[len(prefix):]
+                break
+
+        parts = urlsplit(v)
+        if parts.query:
+            kept = [
+                (k, val)
+                for k, val in parse_qsl(parts.query)
+                if k not in ("sslmode", "channel_binding")
+            ]
+            v = urlunsplit(parts._replace(query=urlencode(kept)))
         return v
 
     @property

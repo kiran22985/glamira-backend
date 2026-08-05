@@ -1,0 +1,55 @@
+# Render Blueprint — deploys the Glamira API as a web service.
+# Docs: https://render.com/docs/blueprint-spec
+#
+# NOTE: no database is defined here on purpose. Render's free plan allows only
+# ONE free PostgreSQL per account, which is already in use by another project.
+# So the database lives on an external free provider (e.g. Neon), and you set
+# DATABASE_URL in the Render dashboard on first deploy. config.py normalizes it
+# to the +asyncpg driver and strips libpq-only params (sslmode) so an external
+# SSL database connects cleanly.
+#
+# To deploy: push to GitHub, then in Render choose "New +" -> "Blueprint" and
+# point it at this repo.
+
+services:
+  - type: web
+    name: glamira-api
+    runtime: python
+    plan: free            # free web service (spins down after ~15 min idle)
+    region: singapore
+    branch: master
+    buildCommand: pip install -r requirements.txt
+    # Run migrations before booting the server (free tier has no pre-deploy hook).
+    # `alembic upgrade head` is a no-op when the DB is already current.
+    startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      # Paste your external Postgres connection string here on first deploy
+      # (Neon gives a postgresql://...:...@...neon.tech/db?sslmode=require URL).
+      - key: DATABASE_URL
+        sync: false
+
+      # A strong JWT secret, generated once and kept across deploys.
+      - key: SECRET_KEY
+        generateValue: true
+
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "10080"    # 7 days
+
+      # Lock this down to your real frontend origin(s) once you have them.
+      - key: CORS_ORIGINS
+        value: "*"
+
+      # Optional — set in the dashboard when needed.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        value: no-reply@glamira.app
