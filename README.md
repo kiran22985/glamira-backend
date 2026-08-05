@@ -16,7 +16,12 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 cp .env.example .env          # then edit DATABASE_URL / SECRET_KEY
 createdb glamira              # or: psql -c "CREATE DATABASE glamira;"
+.venv/bin/alembic upgrade head   # create the schema
 ```
+
+> Upgrading an existing DB that predates Alembic (its tables were created by the
+> old startup `create_all`)? Run `alembic stamp head` **once** instead of
+> `upgrade` to record the current revision without re-creating tables.
 
 `.env` `DATABASE_URL` uses the async driver, e.g.:
 ```
@@ -32,8 +37,31 @@ postgresql+asyncpg://<user>:<password>@localhost:5432/glamira
 - Interactive docs: http://localhost:8000/docs
 - Health: http://localhost:8000/health
 
-Tables are auto-created on startup (dev convenience). For production, replace
-`init_db()` with Alembic migrations.
+## Migrations (Alembic)
+
+The schema is managed by Alembic — the app no longer creates tables at startup.
+
+```bash
+.venv/bin/alembic upgrade head                       # apply migrations
+.venv/bin/alembic revision --autogenerate -m "msg"   # after changing models.py
+.venv/bin/alembic downgrade -1                        # roll back one revision
+.venv/bin/alembic current                             # show current revision
+```
+
+Alembic reads `DATABASE_URL` from your `.env` (via `app.config`), so it always
+targets the same database as the app.
+
+## Deploy (Render, free tier)
+
+`render.yaml` is a Render Blueprint that provisions the API + a free PostgreSQL
+database. Push to GitHub, then in Render: **New +** → **Blueprint** → pick this
+repo. Migrations run automatically on each deploy (`alembic upgrade head` is
+prepended to the start command).
+
+Free-tier caveats: the web service sleeps after ~15 min idle (slow first
+request), the filesystem is ephemeral so uploaded avatars in `media/` are wiped
+on redeploy (use object storage for real persistence), and the free database is
+removed ~90 days after creation.
 
 ## Endpoints
 

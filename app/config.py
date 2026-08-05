@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,6 +31,20 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     smtp_from: str = "no-reply@glamira.app"
     smtp_from_name: str = "Glamira"
+
+    @field_validator("database_url")
+    @classmethod
+    def _use_asyncpg_driver(cls, v: str) -> str:
+        """Normalize the DB URL to the async driver.
+
+        Hosts like Render provide a psycopg-style URL (``postgres://`` or
+        ``postgresql://``), but our engine uses asyncpg and needs its own
+        ``+asyncpg`` prefix. Rewrite it so the same code runs locally and in prod.
+        """
+        for prefix in ("postgresql://", "postgres://"):
+            if v.startswith(prefix):
+                return "postgresql+asyncpg://" + v[len(prefix):]
+        return v
 
     @property
     def cors_origins_list(self) -> list[str]:

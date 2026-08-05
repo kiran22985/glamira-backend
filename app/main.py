@@ -1,26 +1,18 @@
 import logging
 import os
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
-from .database import init_db
 from .routers import auth
 
 logging.basicConfig(level=logging.INFO)
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Dev convenience: ensure tables exist. Swap for Alembic in production.
-    await init_db()
-    yield
-
-
-app = FastAPI(title="Glamira API", version="0.1.0", lifespan=lifespan)
+# Schema is managed by Alembic migrations (`alembic upgrade head`), run on
+# deploy — see README. The app no longer creates tables at startup.
+app = FastAPI(title="Glamira API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
