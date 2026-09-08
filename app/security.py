@@ -23,16 +23,24 @@ def verify_password(password: str, hashed: str) -> bool:
         return False
 
 
-def create_access_token(subject: str) -> str:
+def create_access_token(subject: str, role: str = "user") -> str:
+    """Issue an access token.
+
+    ``role`` separates the two audiences: "user" for the customer app and
+    "partner" for the partner app. Customers and partners live in different
+    tables, so without this claim a token from one app would be presented to
+    the other's endpoints and only fail by id lookup — the claim makes the
+    rejection explicit.
+    """
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=settings.access_token_expire_minutes
     )
-    payload = {"sub": subject, "exp": expire, "type": "access"}
+    payload = {"sub": subject, "exp": expire, "type": "access", "role": role}
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
 
 
-def decode_access_token(token: str) -> str | None:
-    """Return the subject (user id) if the token is valid, else None."""
+def decode_access_token(token: str, *, expected_role: str = "user") -> str | None:
+    """Return the subject if the token is valid for ``expected_role``, else None."""
     try:
         payload = jwt.decode(
             token, settings.secret_key, algorithms=[settings.algorithm]
@@ -40,6 +48,9 @@ def decode_access_token(token: str) -> str | None:
     except jwt.PyJWTError:
         return None
     if payload.get("type") != "access":
+        return None
+    # Tokens issued before roles existed carry no claim; they're all customers.
+    if payload.get("role", "user") != expected_role:
         return None
     return payload.get("sub")
 

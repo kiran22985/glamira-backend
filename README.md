@@ -76,18 +76,58 @@ filesystem is ephemeral so uploaded avatars in `media/` are wiped on redeploy
 
 ## Endpoints
 
+### Customer app (`Glamira`)
+
 | Method | Path                    | Purpose                              |
 |--------|-------------------------|--------------------------------------|
 | POST   | `/auth/signup`          | Create account → `{access_token, user}` |
 | POST   | `/auth/login`           | Email + password → `{access_token, user}` |
-| POST   | `/auth/forgot-password` | Email a reset link (always 200)      |
-| POST   | `/auth/reset-password`  | `{token, new_password}`              |
+| POST   | `/auth/google`          | Google ID token → `{access_token, user}`; creates the account on first use |
+| POST   | `/auth/forgot-password` | Email a 6-digit reset code (always 200) |
+| POST   | `/auth/reset-password`  | `{email, code, new_password}`        |
 | GET    | `/auth/me`              | Current user (Bearer token)          |
+| POST   | `/auth/me/avatar`       | Upload an avatar (multipart)         |
+| DELETE | `/auth/me/avatar`       | Remove the avatar                    |
 
-When SMTP isn't configured, the password-reset link is **logged to the server
-console** instead of emailed — handy for local testing.
+### Partner app (`glamira_partner`)
+
+| Method | Path                            | Purpose                                    |
+|--------|---------------------------------|--------------------------------------------|
+| POST   | `/partner/auth/signup`          | Create account → `{access_token, partner}` |
+| POST   | `/partner/auth/login`           | Email + password → `{access_token, partner}` |
+| POST   | `/partner/auth/google`          | Google ID token → `{access_token, partner}`; **sign-in only**, never creates |
+| POST   | `/partner/auth/forgot-password` | Email a 6-digit reset code (always 200)    |
+| POST   | `/partner/auth/reset-password`  | `{email, code, new_password}`              |
+| GET    | `/partner/auth/me`              | Current partner (Bearer token)             |
+
+`/partner/auth/signup` takes `full_name`, `business_name`, `email`,
+`phone_number`, `address` and `password` — matching the partner app's sign-up
+form. Unlike customers, all of those are required.
+
+When SMTP isn't configured, the reset code is **logged to the server console**
+instead of emailed — handy for local testing.
+
+## Customers vs partners
+
+Partners live in their own `partners` table rather than as a role on `users`:
+they carry business fields (`business_name`, `address`) a customer has no use
+for, and the same person may hold both a customer and a partner account under
+one email address.
+
+Access tokens therefore carry a **`role` claim** (`"user"` or `"partner"`).
+`get_current_user` accepts only `user` tokens and `get_current_partner` only
+`partner` ones, so a token from one app is rejected outright by the other's
+endpoints. Tokens issued before the claim existed are treated as `user`, so
+customers already signed in stay signed in.
+
+`/partner/auth/google` deliberately does **not** create accounts. A Google
+token carries no business name, phone number or address, so an unknown address
+gets a 404 telling them to sign up first.
 
 ## Notes / next steps
-- Google sign-in: add a `/auth/google` endpoint that verifies a Google ID token
-  (needs `google-auth` + a Google OAuth client id).
-- Add Alembic for migrations before deploying.
+- Partner profile management (update details, upload a salon logo) — the
+  customer app's `/auth/me/avatar` pair is the model to follow.
+- Partner accounts are live the moment they sign up; if Glamira wants to vet
+  salons before they appear to customers, add an `is_approved` flag and gate
+  login on it.
+- Services, bookings and earnings — the tables both apps actually need next.

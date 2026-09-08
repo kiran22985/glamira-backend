@@ -50,3 +50,39 @@ class TokenResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+# --- Partner app ---------------------------------------------------------
+
+
+class PartnerSignupRequest(BaseModel):
+    full_name: str = Field(min_length=1, max_length=255)
+    business_name: str = Field(min_length=1, max_length=255)
+    email: EmailStr
+    phone_number: str = Field(min_length=7, max_length=32)
+    address: str = Field(min_length=1, max_length=512)
+    password: str = Field(min_length=8, max_length=128)
+
+
+class PartnerLoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class PartnerResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    full_name: str
+    business_name: str
+    email: EmailStr
+    phone_number: str
+    address: str
+    is_active: bool
+    created_at: datetime
+
+
+class PartnerTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    partner: PartnerResponse

@@ -37,6 +37,36 @@ class User(Base):
     )
 
 
+class Partner(Base):
+    """A salon/parlor owner using the Glamira Partner app.
+
+    Deliberately a separate table from [User] rather than a role on it: partners
+    carry business fields a customer has no use for, and the same person may
+    hold both a customer and a partner account under one email address.
+    """
+
+    __tablename__ = "partners"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    full_name: Mapped[str] = mapped_column(String(255))
+    business_name: Mapped[str] = mapped_column(String(255))
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    # Required for partners — clients and Glamira both need to reach the salon.
+    phone_number: Mapped[str] = mapped_column(String(32))
+    address: Mapped[str] = mapped_column(String(512))
+    hashed_password: Mapped[str] = mapped_column(String(255))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
+
+    reset_tokens: Mapped[list["PartnerPasswordResetToken"]] = relationship(
+        back_populates="partner", cascade="all, delete-orphan"
+    )
+
+
 class PasswordResetToken(Base):
     __tablename__ = "password_reset_tokens"
 
@@ -56,3 +86,28 @@ class PasswordResetToken(Base):
     )
 
     user: Mapped["User"] = relationship(back_populates="reset_tokens")
+
+
+class PartnerPasswordResetToken(Base):
+    """Mirror of [PasswordResetToken] for the partners table."""
+
+    __tablename__ = "partner_password_reset_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    partner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("partners.id", ondelete="CASCADE"),
+        index=True,
+    )
+    # SHA-256 of the 6-digit OTP (not unique — codes may collide across rows).
+    code_hash: Mapped[str] = mapped_column(String(255), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used: Mapped[bool] = mapped_column(Boolean, default=False)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
+
+    partner: Mapped["Partner"] = relationship(back_populates="reset_tokens")
