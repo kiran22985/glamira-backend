@@ -57,6 +57,8 @@ class Partner(Base):
     phone_number: Mapped[str] = mapped_column(String(32))
     address: Mapped[str] = mapped_column(String(512))
     hashed_password: Mapped[str] = mapped_column(String(255))
+    # Server-relative path to the parlor photo, e.g. "/media/parlors/x.jpg".
+    image_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow

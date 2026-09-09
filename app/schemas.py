@@ -78,6 +78,7 @@ class PartnerResponse(BaseModel):
     email: EmailStr
     phone_number: str
     address: str
+    image_url: str | None
     is_active: bool
     created_at: datetime
 

@@ -18,6 +18,7 @@ from google.oauth2 import id_token as google_id_token
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .. import images
 from ..config import settings
 from ..database import get_db
 from ..deps import get_current_user
@@ -45,11 +46,7 @@ MAX_RESET_ATTEMPTS = 5
 
 AVATAR_DIR = "media/avatars"
 AVATAR_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
-AVATAR_EXTENSIONS = {
-    "image/jpeg": ".jpg",
-    "image/png": ".png",
-    "image/webp": ".webp",
-}
+AVATAR_FORMATS = {images.JPEG, images.PNG, images.WEBP}
 
 
 def _verify_google_id_token(token: str, audience: str) -> dict:
@@ -243,18 +240,20 @@ async def upload_avatar(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    ext = AVATAR_EXTENSIONS.get(file.content_type or "")
-    if ext is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Unsupported image type. Use JPEG, PNG or WebP.",
-        )
-
     contents = await file.read()
     if len(contents) > AVATAR_MAX_BYTES:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail="Image is too large (max 5 MB).",
+        )
+
+    # Detected from the bytes, not the client's Content-Type header — Dio
+    # sends application/octet-stream, which this used to reject outright.
+    ext = images.detect_image_extension(contents)
+    if ext not in AVATAR_FORMATS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported image type. Use JPEG, PNG or WebP.",
         )
 
     os.makedirs(AVATAR_DIR, exist_ok=True)

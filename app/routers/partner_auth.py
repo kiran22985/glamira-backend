@@ -1,12 +1,23 @@
 import asyncio
+import os
+import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    UploadFile,
+    status,
+)
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .. import images
 from ..config import settings
 from ..database import get_db
 from ..deps import get_current_partner
@@ -31,6 +42,11 @@ from ..security import (
 )
 
 MAX_RESET_ATTEMPTS = 5
+
+PARLOR_IMAGE_DIR = "media/parlors"
+PARLOR_IMAGE_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+# Matches the formats the partner app's picker offers.
+PARLOR_IMAGE_FORMATS = {images.PNG, images.JPEG}
 
 router = APIRouter(prefix="/partner/auth", tags=["partner-auth"])
 
@@ -222,4 +238,62 @@ async def reset_password(
 
 @router.get("/me", response_model=PartnerResponse)
 async def me(current_partner: Partner = Depends(get_current_partner)):
+    return PartnerResponse.model_validate(current_partner)
+
+
+@router.post("/me/parlor-image", response_model=PartnerResponse)
+async def upload_parlor_image(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_partner: Partner = Depends(get_current_partner),
+):
+    """Replace the partner's parlor photo. JPEG or PNG, up to 5 MB."""
+    contents = await file.read()
+    if len(contents) > PARLOR_IMAGE_MAX_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Image is too large (max 5 MB).",
+        )
+
+    ext = images.detect_image_extension(contents)
+    if ext not in PARLOR_IMAGE_FORMATS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported image type. Use JPG, JPEG or PNG.",
+        )
+
+    os.makedirs(PARLOR_IMAGE_DIR, exist_ok=True)
+    filename = f"{current_partner.id}_{uuid.uuid4().hex}{ext}"
+    with open(os.path.join(PARLOR_IMAGE_DIR, filename), "wb") as f:
+        f.write(contents)
+
+    previous = current_partner.image_url
+    current_partner.image_url = f"/media/parlors/{filename}"
+    await db.commit()
+    await db.refresh(current_partner)
+
+    # Best-effort cleanup of the replaced file, after the new one is committed.
+    if previous:
+        try:
+            os.remove(previous.lstrip("/"))
+        except OSError:
+            pass
+
+    return PartnerResponse.model_validate(current_partner)
+
+
+@router.delete("/me/parlor-image", response_model=PartnerResponse)
+async def remove_parlor_image(
+    db: AsyncSession = Depends(get_db),
+    current_partner: Partner = Depends(get_current_partner),
+):
+    if current_partner.image_url:
+        # Best-effort delete of the stored file (path is "/media/parlors/x").
+        try:
+            os.remove(current_partner.image_url.lstrip("/"))
+        except OSError:
+            pass
+        current_partner.image_url = None
+        await db.commit()
+        await db.refresh(current_partner)
     return PartnerResponse.model_validate(current_partner)
