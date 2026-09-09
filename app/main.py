@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
-from .routers import auth, partner_auth
+from .routers import auth, parlors, partner_auth
 
 logging.basicConfig(level=logging.INFO)
 
@@ -28,6 +28,7 @@ app.mount("/media", StaticFiles(directory="media"), name="media")
 
 app.include_router(auth.router)
 app.include_router(partner_auth.router)
+app.include_router(parlors.router)
 
 
 @app.get("/health", tags=["health"])

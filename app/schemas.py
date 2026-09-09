@@ -87,3 +87,15 @@ class PartnerTokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     partner: PartnerResponse
+
+
+class ParlorResponse(BaseModel):
+    """A partner as the customer app sees it — business details only, never
+    the owner's name, email or phone."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    business_name: str
+    address: str
+    image_url: str | None
