@@ -1,7 +1,5 @@
 import asyncio
-import os
 import secrets
-import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import (
@@ -18,7 +16,7 @@ from google.oauth2 import id_token as google_id_token
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import images
+from .. import images, storage
 from ..config import settings
 from ..database import get_db
 from ..deps import get_current_user
@@ -44,7 +42,6 @@ from ..security import (
 
 MAX_RESET_ATTEMPTS = 5
 
-AVATAR_DIR = "media/avatars"
 AVATAR_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
 AVATAR_FORMATS = {images.JPEG, images.PNG, images.WEBP}
 
@@ -256,12 +253,19 @@ async def upload_avatar(
             detail="Unsupported image type. Use JPEG, PNG or WebP.",
         )
 
-    os.makedirs(AVATAR_DIR, exist_ok=True)
-    filename = f"{current_user.id}_{uuid.uuid4().hex}{ext}"
-    with open(os.path.join(AVATAR_DIR, filename), "wb") as f:
-        f.write(contents)
+    try:
+        url = await asyncio.to_thread(
+            storage.upload_image,
+            contents,
+            folder=storage.AVATAR_FOLDER,
+            owner_id=str(current_user.id),
+        )
+    except storage.StorageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        )
 
-    current_user.avatar_url = f"/media/avatars/{filename}"
+    current_user.avatar_url = url
     await db.commit()
     await db.refresh(current_user)
     return UserResponse.model_validate(current_user)
@@ -273,11 +277,11 @@ async def remove_avatar(
     current_user: User = Depends(get_current_user),
 ):
     if current_user.avatar_url:
-        # Best-effort delete of the stored file (path is "/media/avatars/x").
-        try:
-            os.remove(current_user.avatar_url.lstrip("/"))
-        except OSError:
-            pass
+        await asyncio.to_thread(
+            storage.delete_image,
+            folder=storage.AVATAR_FOLDER,
+            owner_id=str(current_user.id),
+        )
         current_user.avatar_url = None
         await db.commit()
         await db.refresh(current_user)

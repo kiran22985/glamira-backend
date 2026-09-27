@@ -1,9 +1,7 @@
 import logging
-import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from .config import settings
 from .routers import auth, parlors, partner_auth
@@ -22,9 +20,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve uploaded files (e.g. avatars) from /media.
-os.makedirs("media/avatars", exist_ok=True)
-app.mount("/media", StaticFiles(directory="media"), name="media")
+# Images live on Cloudinary, not this server's disk — Render wipes it on every
+# deploy and whenever a free instance sleeps. See app/storage.py.
 
 app.include_router(auth.router)
 app.include_router(partner_auth.router)

@@ -1,6 +1,4 @@
 import asyncio
-import os
-import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import (
@@ -17,7 +15,7 @@ from google.oauth2 import id_token as google_id_token
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import images
+from .. import images, storage
 from ..config import settings
 from ..database import get_db
 from ..deps import get_current_partner
@@ -43,7 +41,6 @@ from ..security import (
 
 MAX_RESET_ATTEMPTS = 5
 
-PARLOR_IMAGE_DIR = "media/parlors"
 PARLOR_IMAGE_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
 # Matches the formats the partner app's picker offers.
 PARLOR_IMAGE_FORMATS = {images.PNG, images.JPEG}
@@ -262,23 +259,21 @@ async def upload_parlor_image(
             detail="Unsupported image type. Use JPG, JPEG or PNG.",
         )
 
-    os.makedirs(PARLOR_IMAGE_DIR, exist_ok=True)
-    filename = f"{current_partner.id}_{uuid.uuid4().hex}{ext}"
-    with open(os.path.join(PARLOR_IMAGE_DIR, filename), "wb") as f:
-        f.write(contents)
+    try:
+        url = await asyncio.to_thread(
+            storage.upload_image,
+            contents,
+            folder=storage.PARLOR_FOLDER,
+            owner_id=str(current_partner.id),
+        )
+    except storage.StorageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        )
 
-    previous = current_partner.image_url
-    current_partner.image_url = f"/media/parlors/{filename}"
+    current_partner.image_url = url
     await db.commit()
     await db.refresh(current_partner)
-
-    # Best-effort cleanup of the replaced file, after the new one is committed.
-    if previous:
-        try:
-            os.remove(previous.lstrip("/"))
-        except OSError:
-            pass
-
     return PartnerResponse.model_validate(current_partner)
 
 
@@ -288,11 +283,11 @@ async def remove_parlor_image(
     current_partner: Partner = Depends(get_current_partner),
 ):
     if current_partner.image_url:
-        # Best-effort delete of the stored file (path is "/media/parlors/x").
-        try:
-            os.remove(current_partner.image_url.lstrip("/"))
-        except OSError:
-            pass
+        await asyncio.to_thread(
+            storage.delete_image,
+            folder=storage.PARLOR_FOLDER,
+            owner_id=str(current_partner.id),
+        )
         current_partner.image_url = None
         await db.commit()
         await db.refresh(current_partner)

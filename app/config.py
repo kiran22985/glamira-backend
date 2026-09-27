@@ -25,6 +25,11 @@ class Settings(BaseSettings):
 
     cors_origins: str = "*"
 
+    # Cloudinary, as a single credential URL: cloudinary://<key>:<secret>@<cloud>
+    # Copy it from the Cloudinary console (Settings -> API Keys). When unset,
+    # the image upload endpoints return 503 rather than failing obscurely.
+    cloudinary_url: str | None = None
+
     # Optional SMTP. When unset, reset links are logged to the console.
     smtp_host: str | None = None
     smtp_port: int = 587
